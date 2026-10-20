@@ -35,6 +35,7 @@ public:
     static const juce::StringArray& keyNames();
     static const juce::StringArray& scaleNames();       // last entry is "Custom"
     static const juce::StringArray& presetNames();
+    static const juce::StringArray& rangeNames();
     static juce::String noteParamId (int pitchClass) { return "note" + juce::String (pitchClass); }
 
     juce::AudioProcessorValueTreeState apvts;
@@ -44,6 +45,9 @@ public:
 private:
     std::atomic<float>* pRetune; std::atomic<float>* pHumanize; std::atomic<float>* pAmount;
     std::atomic<float>* pFormant; std::atomic<float>* pMix; std::atomic<float>* pActive;
+    std::atomic<float>* pTolerance; std::atomic<float>* pTranspose; std::atomic<float>* pDetune; std::atomic<float>* pReference;
+    std::atomic<float>* pVibKeep; std::atomic<float>* pVibDepth; std::atomic<float>* pVibRate; std::atomic<float>* pVibDelay;
+    std::atomic<float>* pGate; std::atomic<float>* pOutGain; std::atomic<float>* pRange;
     std::atomic<float>* pNote[12];
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (PitchlyProcessor)
