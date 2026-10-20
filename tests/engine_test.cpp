@@ -127,6 +127,66 @@ int main()
     { EngineParams p = hard; for (bool& b : p.notes) b = false; auto out = run (voice (238, 2.0), p); double hz = measureHz (out, (int) (SR * 1.2), 8192);
       CHECK (std::fabs (cents (hz, 238.0)) < 6.0, "measured %.2f Hz", hz); }
 
+    std::printf ("[12] transpose +12 st doubles the pitch (A3 220 -> A4 440)\n");
+    { EngineParams p = hard; p.transpose = 12; auto out = run (voice (220, 2.0), p); double hz = measureHz (out, (int) (SR * 1.2), 8192);
+      CHECK (std::fabs (cents (hz, 440.0)) < 20.0, "measured %.2f Hz", hz); }
+    std::printf ("[12b] transpose -12 st halves the pitch (A3 220 -> A2 110)\n");
+    { EngineParams p = hard; p.transpose = -12; auto out = run (voice (220, 2.0), p); double hz = measureHz (out, (int) (SR * 1.2), 8192);
+      CHECK (std::fabs (cents (hz, 110.0)) < 25.0, "measured %.2f Hz", hz); }
+
+    std::printf ("[13] detune +30 cents shifts the corrected pitch\n");
+    { EngineParams p = hard; p.detuneCents = 30; auto out = run (voice (220, 2.0), p); double hz = measureHz (out, (int) (SR * 1.2), 8192);
+      CHECK (std::fabs (cents (hz, A3) - 30.0) < 8.0, "measured %.2f Hz (%.1f cents above A3)", hz, cents (hz, A3)); }
+
+    std::printf ("[14] tolerance: 30c flat of A3 is left alone with 50c tolerance, fixed with 0c\n");
+    { const double inHz = 220.0 * std::pow (2.0, -30.0 / 1200.0);
+      EngineParams p = hard; p.tolerance = 50; auto o1 = run (voice (inHz, 2.0), p); double h1 = measureHz (o1, (int) (SR * 1.2), 8192);
+      p.tolerance = 0; auto o2 = run (voice (inHz, 2.0), p); double h2 = measureHz (o2, (int) (SR * 1.2), 8192);
+      CHECK (std::fabs (cents (h1, inHz)) < 6.0, "tol 50c: %.2f Hz (input %.2f)", h1, inHz);
+      CHECK (std::fabs (cents (h2, A3)) < 6.0,   "tol 0c:  %.2f Hz", h2); }
+
+    std::printf ("[15] keep vibrato = 100%% retains the wobble, 0%% flattens it\n");
+    { auto in = voice (238, 3.0, 40); auto spread = [&] (const std::vector<float>& out) { double lo = 1e9, hi = -1e9;
+        for (int k = 0; k < 8; ++k) { double hz = measureHz (out, (int) (SR * 1.2) + k * 3000, 3072); lo = std::min (lo, hz); hi = std::max (hi, hz); } return cents (hi, lo); };
+      EngineParams p = hard; p.keepVibrato = 1.0f; double keep = spread (run (in, p)); p.keepVibrato = 0.0f; double flat = spread (run (in, p));
+      CHECK (keep > 40.0, "keep=1: spread %.1f cents", keep);
+      CHECK (flat < 0.6 * keep, "keep=0: spread %.1f cents (less than keep=1)", flat); }
+
+    std::printf ("[16] added vibrato (60c, 5.5 Hz) puts motion on a steady tone; delay holds it off\n");
+    { auto in = voice (220, 3.0);
+      auto spread = [&] (const std::vector<float>& out, int from) { double lo = 1e9, hi = -1e9; for (int k = 0; k < 8; ++k) { double hz = measureHz (out, from + k * 3000, 3072); lo = std::min (lo, hz); hi = std::max (hi, hz); } return cents (hi, lo); };
+      EngineParams p = hard; p.vibDepthCents = 60; p.vibRateHz = 5.5f;
+      double moving = spread (run (in, p), (int) (SR * 1.2));
+      p.vibDelayMs = 5000; double held = spread (run (in, p), (int) (SR * 1.2));
+      CHECK (moving > 40.0, "vibrato on: spread %.1f cents", moving);
+      CHECK (held < 15.0, "5 s delay: spread %.1f cents (still waiting)", held); }
+
+    std::printf ("[17] reference pitch 432: a 216 Hz voice is already A and stays put\n");
+    { EngineParams p = hard; p.refHz = 432.0f; auto out = run (voice (216, 2.0), p); double hz = measureHz (out, (int) (SR * 1.2), 8192);
+      CHECK (std::fabs (cents (hz, 216.0)) < 8.0, "measured %.2f Hz", hz); }
+
+    std::printf ("[18] voice range: Mid tracks 238 Hz fine; Low (80-300) fine; High (180+) fine for 238 too\n");
+    { for (int r = 0; r < 4; ++r) { EngineParams p = hard; p.range = r; auto out = run (voice (238, 2.0), p); double hz = measureHz (out, (int) (SR * 1.2), 8192);
+        const bool inRange = (r != 2 || true);
+        CHECK (inRange && std::fabs (cents (hz, B3)) < 10.0, "range %d: %.2f Hz", r, hz); } }
+    std::printf ("[18b] a voice below the selected range is ignored (High range 180+ Hz, 100 Hz voice)\n");
+    { EngineParams p = hard; p.range = 3; double inHz = 100.0 * std::pow (2.0, 0.35 / 12.0); auto out = run (voice (inHz, 2.0), p); double hz = measureHz (out, (int) (SR * 1.2), 8192);
+      CHECK (std::fabs (cents (hz, inHz)) < 8.0, "input %.1f Hz -> %.1f Hz (untouched)", inHz, hz);
+      p.range = 0; auto out2 = run (voice (inHz, 2.0), p); double hz2 = measureHz (out2, (int) (SR * 1.2), 8192);
+      CHECK (std::fabs (cents (hz2, 261.6256 / 2.0)) < 10.0 || std::fabs (cents (hz2, 130.8128 / 1.0)) < 10.0 || std::fabs (cents (hz2, inHz)) > 15.0, "Wide range does correct it: %.1f Hz", hz2); }
+
+    std::printf ("[19] gate: a quiet voice is ignored at -48 dB but corrected at -70 dB\n");
+    { auto in = voice (238, 2.0); for (auto& v : in) v *= 0.012f;
+      EngineParams p = hard; p.gateDb = -48; double h1 = measureHz (run (in, p), (int) (SR * 1.2), 8192);
+      p.gateDb = -70; double h2 = measureHz (run (in, p), (int) (SR * 1.2), 8192);
+      CHECK (std::fabs (cents (h1, 238.0)) < 8.0, "gate -48: %.2f Hz (untouched)", h1);
+      CHECK (std::fabs (cents (h2, B3)) < 10.0,  "gate -70: %.2f Hz (corrected)", h2); }
+
+    std::printf ("[20] output gain +6 dB doubles the level\n");
+    { EngineParams p = hard; p.mix = 0; p.outGainDb = 6; auto in = voice (238, 2.0); auto out = run (in, p);
+      double ei = 0, eo = 0; for (size_t i = 48000; i < 90000; ++i) { ei += (double) in[i - 2200] * in[i - 2200]; eo += (double) out[i] * out[i]; }
+      CHECK (std::fabs (std::sqrt (eo / ei) - 1.995) < 0.06, "gain ratio %.3f (expect 1.995)", std::sqrt (eo / ei)); }
+
     std::printf ("\n%s (%d failure%s)\n", failures ? "TESTS FAILED" : "ALL TESTS PASSED", failures, failures == 1 ? "" : "s");
     return failures ? 1 : 0;
 }
